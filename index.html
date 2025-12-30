@@ -1,131 +1,339 @@
-<!doctype html> <html lang="en"> <head> <meta charset="UTF-8" /> <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" /> <title>Water Level Dashboard</title> <!-- TailwindCSS via CDN --> <script src="https://cdn.tailwindcss.com"></script> <!-- Material Icons (optional) --> <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons" /> <!-- mqtt.js browser bundle via CDN --> <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script> <style> /* Prevent accidental overscroll glow on mobile */ html, body { height: 100%; } </style> </head> <body class="h-screen overflow-hidden bg-slate-50 text-slate-900"> <noscript> <div class="p-4 text-sm bg-red-50 text-red-700"> This page requires JavaScript enabled. </div> </noscript> <!-- App Shell --> <div class="h-full flex flex-col"> <!-- Header --> <header class="px-4 pt-4 pb-3"> <div class="max-w-md mx-auto flex items-center justify-between"> <div class="flex items-center gap-2"> <span class="material-icons text-slate-700">water_drop</span> <div> <div class="text-base font-semibold leading-tight">Water Level</div> <div class="text-xs text-slate-500 leading-tight">MQTT live dashboard</div> </div> </div>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Water Level Monitor</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
 
-      <!-- Connection Chip -->
-    <div class="flex items-center gap-2">
-      <span id="connChip" class="inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium ring-1 ring-inset">
-        <span class="material-icons text-[16px] leading-none">cloud_off</span>
-        <span id="connText">Offline</span>
-      </span>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+
+    <style>
+        body { font-family: 'Roboto', sans-serif; background-color: #f5f5f5; }
+        .transition-all-300 { transition: all 0.3s ease-in-out; }
+        .btn-ripple:active { transform: scale(0.98); opacity: 0.8; }
+        #alert-dialog { background-color: rgba(0, 0, 0, 0.5); }
+        
+        /* Pulse animation for the test button if audio is locked */
+        @keyframes pulse-orange {
+            0% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(245, 158, 11, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
+        }
+        .animate-pulse-attention {
+            animation: pulse-orange 2s infinite;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4">
+
+    <div class="bg-white w-full max-w-sm rounded-xl shadow-lg overflow-hidden border border-gray-100 relative">
+        
+        <div class="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+            <h1 class="text-lg font-medium text-gray-700 tracking-wide">Water Monitor</h1>
+            
+            <div class="flex items-center space-x-3">
+                <button id="btn-test-sound" class="text-gray-400 hover:text-red-600 focus:outline-none transition-colors" title="Test Siren">
+                    <span class="material-icons text-xl">volume_up</span>
+                </button>
+
+                <div id="connection-chip" class="flex items-center space-x-1 px-2 py-1 rounded-full bg-gray-200 text-gray-600 text-xs font-bold uppercase transition-colors duration-300">
+                    <span class="material-icons text-sm" id="conn-icon">wifi_off</span>
+                    <span id="conn-text">Offline</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="p-6 flex flex-col items-center space-y-6">
+            
+            <div class="text-center w-full">
+                <div class="text-gray-500 text-sm font-medium uppercase tracking-wider mb-1">Current Level</div>
+                <div class="flex items-baseline justify-center text-gray-800">
+                    <span id="water-level" class="text-7xl font-light tracking-tighter">--</span>
+                    <span class="text-xl text-gray-400 ml-1">cm</span>
+                </div>
+            </div>
+
+            <div class="w-full h-px bg-gray-200"></div>
+
+            <div class="w-full grid grid-cols-2 gap-4">
+                <div class="flex flex-col items-center">
+                    <span class="text-xs text-gray-400 font-bold uppercase">Threshold</span>
+                    <span id="threshold-level" class="text-xl font-medium text-gray-600">--</span>
+                </div>
+                <div class="flex flex-col items-center">
+                    <span class="text-xs text-gray-400 font-bold uppercase">Status</span>
+                    <span id="status-chip" class="mt-1 px-3 py-0.5 rounded-full text-sm font-bold bg-gray-200 text-gray-500 transition-colors duration-300">
+                        WAITING
+                    </span>
+                </div>
+            </div>
+
+            <button id="btn-enable-sound" class="hidden w-full bg-amber-500 hover:bg-amber-600 text-white font-medium py-2 px-4 rounded shadow-md flex items-center justify-center space-x-2 btn-ripple transition-all-300 animate-pulse-attention">
+                <span class="material-icons">touch_app</span>
+                <span>Tap to Enable Alarm</span>
+            </button>
+        </div>
+        
+        <div id="activity-bar" class="h-1 bg-blue-500 w-0 transition-all duration-300"></div>
     </div>
-  </div>
-</header>
 
-<!-- Main -->
-<main class="flex-1 px-4 pb-4">
-  <div class="h-full max-w-md mx-auto flex flex-col gap-3">
-    <!-- Primary Card -->
-    <section class="rounded-2xl bg-white shadow-sm ring-1 ring-slate-200 p-4">
-      <div class="flex items-start justify-between gap-3">
-        <div class="min-w-0">
-          <div class="text-sm text-slate-600">Current Level</div>
-          <div class="mt-1 text-5xl font-semibold tracking-tight tabular-nums">
-            <span id="currentLevel">--</span>
-          </div>
-          <div class="mt-2 text-sm text-slate-600">
-            Threshold: <span class="font-medium tabular-nums" id="thresholdLevel">--</span>
-          </div>
+    <div id="alert-dialog" class="fixed inset-0 z-50 hidden flex items-end sm:items-center justify-center p-4 sm:p-0 backdrop-blur-sm transition-opacity duration-300 opacity-0">
+        <div class="bg-white w-full max-w-xs rounded-lg shadow-2xl overflow-hidden transform transition-transform duration-300 scale-95 sm:scale-100">
+            <div class="p-4 flex items-start space-x-4">
+                <div class="flex-shrink-0">
+                    <span class="material-icons text-red-600 text-4xl">notifications_active</span>
+                </div>
+                <div class="flex-1">
+                    <h3 class="text-lg font-medium text-gray-900">High Water Level!</h3>
+                    <p class="mt-1 text-sm text-gray-500">
+                        Level exceeds threshold. Check system immediately.
+                    </p>
+                </div>
+            </div>
+            <div class="bg-gray-50 px-4 py-3 sm:px-6 flex flex-row-reverse">
+                <button id="btn-dismiss" type="button" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-red-600 text-base font-medium text-white hover:bg-red-700 focus:outline-none sm:ml-3 sm:w-auto sm:text-sm btn-ripple">
+                    DISMISS (Snooze 60s)
+                </button>
+            </div>
         </div>
-
-        <!-- Status Chip -->
-        <div class="shrink-0">
-          <span id="alertChip" class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ring-1 ring-inset">
-            <span class="material-icons text-[16px] leading-none mr-1">check_circle</span>
-            <span id="alertText">OK</span>
-          </span>
-        </div>
-      </div>
-
-      <div class="mt-4 flex items-center justify-between">
-        <div class="text-xs text-slate-500">
-          Last update: <span id="lastUpdate">—</span>
-        </div>
-        <div class="text-xs text-slate-500">
-          Topic: <span class="font-mono text-[11px]">amana/water_level</span>
-        </div>
-      </div>
-    </section>
-
-    <!-- Controls Card -->
-    <section class="rounded-2xl bg-white shadow-sm ring-1 ring-slate-200 p-4 flex-1 flex flex-col justify-between">
-      <div>
-        <div class="text-sm font-semibold text-slate-800">Controls</div>
-        <div class="mt-1 text-xs text-slate-500">
-          Sound plays on <span class="font-medium">ALERT</span>. If blocked, tap “Enable Sound” once.
-        </div>
-
-        <div class="mt-3 flex flex-wrap items-center gap-2">
-          <button
-            id="enableSoundBtn"
-            class="hidden inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 text-white px-4 py-2 text-sm font-semibold shadow-sm active:scale-[0.99]"
-            type="button"
-          >
-            <span class="material-icons text-[18px] leading-none">volume_up</span>
-            Enable Sound
-          </button>
-
-          <button
-            id="testSoundBtn"
-            class="hidden inline-flex items-center justify-center gap-2 rounded-xl bg-white text-slate-900 px-4 py-2 text-sm font-semibold ring-1 ring-inset ring-slate-300 shadow-sm active:scale-[0.99]"
-            type="button"
-            title="Plays a short beep"
-          >
-            <span class="material-icons text-[18px] leading-none">music_note</span>
-            Test Sound
-          </button>
-
-          <button
-            id="reconnectBtn"
-            class="inline-flex items-center justify-center gap-2 rounded-xl bg-white text-slate-900 px-4 py-2 text-sm font-semibold ring-1 ring-inset ring-slate-300 shadow-sm active:scale-[0.99]"
-            type="button"
-            title="Reconnect MQTT"
-          >
-            <span class="material-icons text-[18px] leading-none">refresh</span>
-            Reconnect
-          </button>
-        </div>
-      </div>
-
-      <!-- Footer Note (kept compact to avoid scrolling) -->
-      <div class="mt-4 rounded-xl bg-slate-50 ring-1 ring-slate-200 p-3 text-xs text-slate-600">
-        <div class="flex items-start gap-2">
-          <span class="material-icons text-[18px] leading-none text-slate-500">info</span>
-          <div class="leading-snug">
-            <div class="font-medium text-slate-700">Broker</div>
-            <div class="font-mono text-[11px] break-all" id="brokerUrlText">—</div>
-          </div>
-        </div>
-      </div>
-    </section>
-  </div>
-</main>
-
-  </div> <!-- Alert Modal --> <div id="alertModal" class="fixed inset-0 hidden"> <div class="absolute inset-0 bg-black/40"></div> <div class="absolute inset-0 flex items-center justify-center p-4"> <div class="w-full max-w-md rounded-2xl bg-white shadow-xl ring-1 ring-slate-200 overflow-hidden"> <div class="p-4"> <div class="flex items-start justify-between gap-3"> <div class="flex items-start gap-2"> <span class="material-icons text-red-600">warning</span> <div> <div class="text-base font-semibold">ALERT</div> <div class="mt-0.5 text-sm text-slate-600"> Water level exceeded threshold. </div> </div> </div> <button id="alertCloseX" class="rounded-lg p-1 text-slate-500 hover:bg-slate-100 active:scale-[0.99]" type="button" aria-label="Close"> <span class="material-icons text-[20px] leading-none">close</span> </button> </div>
-
-          <div class="mt-4 grid grid-cols-2 gap-3">
-        <div class="rounded-xl bg-slate-50 ring-1 ring-slate-200 p-3">
-          <div class="text-xs text-slate-500">Current</div>
-          <div class="mt-1 text-xl font-semibold tabular-nums" id="modalCurrent">--</div>
-        </div>
-        <div class="rounded-xl bg-slate-50 ring-1 ring-slate-200 p-3">
-          <div class="text-xs text-slate-500">Threshold</div>
-          <div class="mt-1 text-xl font-semibold tabular-nums" id="modalThreshold">--</div>
-        </div>
-      </div>
-
-      <div class="mt-4 flex items-center justify-between gap-2">
-        <div class="text-xs text-slate-500" id="snoozeHint">—</div>
-        <button
-          id="alertDismissBtn"
-          class="inline-flex items-center justify-center gap-2 rounded-xl bg-red-600 text-white px-4 py-2 text-sm font-semibold shadow-sm active:scale-[0.99]"
-          type="button"
-        >
-          <span class="material-icons text-[18px] leading-none">snooze</span>
-          Dismiss (Snooze 60s)
-        </button>
-      </div>
     </div>
-  </div>
-</div>
 
-</div> <!-- Tiny Toast (for non-intrusive feedback) --> <div id="toast" class="pointer-events-none fixed left-0 right-0 bottom-3 hidden"> <div class="max-w-md mx-auto px-4"> <div class="rounded-xl bg-slate-900 text-white px-4 py-2 text-sm shadow-lg flex items-center gap-2"> <span class="material-icons text-[18px] leading-none">info</span> <span id="toastText">—</span> </div> </div> </div> <script> (() => { // --- Constants --- const TOPIC = "amana/water_level"; const WS_URL_DEFAULT = "ws://test.mosquitto.org:8080/mqtt"; const WSS_URL_FALLBACK = "wss://test.mosquitto.org:8081/mqtt"; // --- DOM --- const el = { currentLevel: document.getElementById("currentLevel"), thresholdLevel: document.getElementById("thresholdLevel"), alertChip: document.getElementById("alertChip"), alertText: document.getElementById("alertText"), lastUpdate: document.getElementById("lastUpdate"), connChip: document.getElementById("connChip"), connText: document.getElementById("connText"), enableSoundBtn: document.getElementById("enableSoundBtn"), testSoundBtn: document.getElementById("testSoundBtn"), reconnectBtn: document.getElementById("reconnectBtn"), brokerUrlText: document.getElementById("brokerUrlText"), alertModal: document.getElementById("alertModal"), alertDismissBtn: document.getElementById("alertDismissBtn"), alertCloseX: document.getElementById("alertCloseX"), modalCurrent: document.getElementById("modalCurrent"), modalThreshold: document.getElementById("modalThreshold"), snoozeHint: document.getElementById("snoozeHint"), toast: document.getElementById("toast"), toastText: document.getElementById("toastText"), }; // --- State --- const state = { currentWaterLevel: null, ThresholdWaterLevel: null, alertOn: false, lastAlertOn: false, lastMsgAt: null, // Snooze rule state: // snoozeUntil is a timestamp in ms. When alertOn is true and now < snoozeUntil, we suppress popup. snoozeUntil: 0, popupOpen: false, // Connection states: Connected / Reconnecting / Offline connState: "Offline", reconnectAttempts: 0, // MQTT client & URL handling client: null, activeUrl: WS_URL_DEFAULT, triedWssFallback: false, httpsFallbackTimer: null, // Sound soundUnlocked: false, audioCtx: null, }; // --- Helpers --- function formatTime(ts) { if (!ts) return "—"; try { const d = new Date(ts); return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }); } catch (_) { return "—"; } } function showToast(msg) { el.toastText.textContent = msg; el.toast.classList.remove("hidden"); clearTimeout(showToast._t); showToast._t = setTimeout(() => el.toast.classList.add("hidden"), 1800); } function setConnState(next) { state.connState = next; el.connText.textContent = next === "Reconnecting" ? `Reconnecting${state.reconnectAttempts ? ` (${state.reconnectAttempts})` : ""}` : next; // Connection chip styles const chip = el.connChip; chip.classList.remove( "bg-emerald-50","text-emerald-700","ring-emerald-200", "bg-amber-50","text-amber-700","ring-amber-200", "bg-slate-100","text-slate-700","ring-slate-200" ); const icon = chip.querySelector(".material-icons"); if (next === "Connected") { chip.classList.add("bg-emerald-50","text-emerald-700","ring-emerald-200"); icon.textContent = "cloud_done"; } else if (next === "Reconnecting") { chip.classList.add("bg-amber-50","text-amber-700","ring-amber-200"); icon.textContent = "cloud_sync"; } else { chip.classList.add("bg-slate-100","text-slate-700","ring-slate-200"); icon.textContent = "cloud_off"; } } function setAlertChip(alertOn) { const chip = el.alertChip; chip.classList.remove( "bg-emerald-50","text-emerald-700","ring-emerald-200", "bg-red-50","text-red-700","ring-red-200" ); const icon = chip.querySelector(".material-icons"); if (alertOn) { chip.classList.add("bg-red-50","text-red-700","ring-red-200"); icon.textContent = "warning"; el.alertText.textContent = "ALERT"; } else { chip.classList.add("bg-emerald-50","text-emerald-700","ring-emerald-200"); icon.textContent = "check_circle"; el.alertText.textContent = "OK"; } } // Strict payload validation: // Must be JSON with exact keys: // { currentWaterLevel: number(int-like), ThresholdWaterLevel: number(int-like), alertOn: boolean } function parseAndValidatePayload(payloadBytesOrString) { let text = ""; try { if (typeof payloadBytesOrString === "string") { text = payloadBytesOrString; } else { text = new TextDecoder().decode(payloadBytesOrString); } } catch (e) { console.warn("[MQTT] Payload decode failed; ignoring.", e); return null; } let obj; try { obj = JSON.parse(text); } catch (e) { console.warn("[MQTT] Invalid JSON; ignoring.", text); return null; } if (!obj || typeof obj !== "object" || Array.isArray(obj)) { console.warn("[MQTT] Payload is not an object; ignoring.", obj); return null; } const keys = Object.keys(obj); const required = ["currentWaterLevel", "ThresholdWaterLevel", "alertOn"]; if (keys.length !== 3 || !required.every(k => keys.includes(k))) { console.warn("[MQTT] Invalid keys (must be exact); ignoring.", obj); return null; } const cwl = obj.currentWaterLevel; const twl = obj.ThresholdWaterLevel; const ao = obj.alertOn; const isIntLike = (v) => typeof v === "number" && Number.isFinite(v) && Number.isInteger(v); if (!isIntLike(cwl) || !isIntLike(twl) || typeof ao !== "boolean") { console.warn("[MQTT] Invalid types; ignoring.", obj); return null; } return { currentWaterLevel: cwl, ThresholdWaterLevel: twl, alertOn: ao }; } // --- Sound (Web Audio) --- function ensureAudioContext() { if (!state.audioCtx) { const Ctx = window.AudioContext || window.webkitAudioContext; if (!Ctx) return null; state.audioCtx = new Ctx(); } return state.audioCtx; } async function unlockSound() { const ctx = ensureAudioContext(); if (!ctx) { showToast("Web Audio not supported in this browser."); return false; } try { if (ctx.state !== "running") await ctx.resume(); state.soundUnlocked = (ctx.state === "running"); } catch (_) { state.soundUnlocked = false; } if (state.soundUnlocked) { el.enableSoundBtn.classList.add("hidden"); el.testSoundBtn.classList.remove("hidden"); showToast("Sound enabled."); return true; } else { el.enableSoundBtn.classList.remove("hidden"); el.testSoundBtn.classList.add("hidden"); showToast("Tap “Enable Sound” to allow audio."); return false; } } async function playBeep() { // Attempt to play. If autoplay is blocked, we keep soundUnlocked false and show Enable Sound. const ctx = ensureAudioContext(); if (!ctx) return false; try { if (ctx.state !== "running") { // Autoplay policies typically prevent resume without user gesture. await ctx.resume(); } } catch (_) {} if (ctx.state !== "running") { state.soundUnlocked = false; el.enableSoundBtn.classList.remove("hidden"); el.testSoundBtn.classList.add("hidden"); return false; } state.soundUnlocked = true; el.enableSoundBtn.classList.add("hidden"); el.testSoundBtn.classList.remove("hidden"); // Short beep (non-annoying): oscillator + gain envelope const osc = ctx.createOscillator(); const gain = ctx.createGain(); osc.type = "sine"; osc.frequency.value = 880; const now = ctx.currentTime; gain.gain.setValueAtTime(0.0001, now); gain.gain.exponentialRampToValueAtTime(0.18, now + 0.02); gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.18); osc.connect(gain); gain.connect(ctx.destination); osc.start(now); osc.stop(now + 0.20); return true; } // --- Popup + Snooze Logic --- function openPopup() { if (state.popupOpen) return; state.popupOpen = true; el.modalCurrent.textContent = state.currentWaterLevel ?? "--"; el.modalThreshold.textContent = state.ThresholdWaterLevel ?? "--"; const now = Date.now(); if (state.snoozeUntil > now) { const secs = Math.max(0, Math.ceil((state.snoozeUntil - now) / 1000)); el.snoozeHint.textContent = `Snoozed for ${secs}s`; } else { el.snoozeHint.textContent = "Dismiss to snooze for 60 seconds."; } el.alertModal.classList.remove("hidden"); } function closePopup() { if (!state.popupOpen) return; state.popupOpen = false; el.alertModal.classList.add("hidden"); } function handleDismiss() { // Snooze rule (MUST): // If popup is active and user dismisses while alertOn is still true: // set snoozeUntil = now + 60s, and do NOT show popup again during that window. const now = Date.now(); if (state.alertOn === true) { state.snoozeUntil = now + 60_000; } closePopup(); } function evaluatePopupAndSound() { // Called on every new VALID payload. const now = Date.now(); // If alert becomes false: reset snooze so next true shows immediately. if (state.alertOn === false) { state.snoozeUntil = 0; closePopup(); return; } // alertOn === true if (now < state.snoozeUntil) { // Snoozed window -> do not show popup if (state.popupOpen) closePopup(); return; } // Not snoozed -> show popup if not already open (prevents flicker with 1-second messages) if (!state.popupOpen) { openPopup(); // Play sound when popup is shown (covers transition to true and re-appearance after snooze) // If autoplay is blocked, Enable Sound button will appear. playBeep(); } } // --- UI Update --- function render() { el.currentLevel.textContent = (state.currentWaterLevel ?? "--"); el.thresholdLevel.textContent = (state.ThresholdWaterLevel ?? "--"); setAlertChip(!!state.alertOn); el.lastUpdate.textContent = formatTime(state.lastMsgAt); // "Enable Sound" button shown only when sound not yet unlocked / blocked. if (state.soundUnlocked) { el.enableSoundBtn.classList.add("hidden"); el.testSoundBtn.classList.remove("hidden"); } else { el.enableSoundBtn.classList.remove("hidden"); el.testSoundBtn.classList.add("hidden"); } } // --- MQTT Connection --- function makeClientId() { const rand = Math.random().toString(16).slice(2); return `web_wlvl_${Date.now().toString(16)}_${rand}`; } function stopClient() { if (state.client) { try { state.client.end(true); } catch (_) {} state.client = null; } } function connectMqtt(url) { stopClient(); state.activeUrl = url; el.brokerUrlText.textContent = url; state.reconnectAttempts = 0; setConnState("Offline"); const options = { clientId: makeClientId(), clean: true, reconnectPeriod: 2000, connectTimeout: 4000, keepalive: 30, }; // Connection state comments: // - 'connect' => Connected // - 'reconnect' => Reconnecting (increment attempts) // - 'offline'/'close' => Offline (until reconnect triggers) const client = mqtt.connect(url, options); state.client = client; let hasConnectedAtLeastOnce = false; client.on("connect", () => { hasConnectedAtLeastOnce = true; state.reconnectAttempts = 0; setConnState("Connected"); client.subscribe(TOPIC, { qos: 0 }, (err) => { if (err) console.warn("[MQTT] Subscribe failed:", err); }); }); client.on("reconnect", () => { state.reconnectAttempts += 1; setConnState("Reconnecting"); }); client.on("offline", () => { // mqtt.js will keep reconnecting based on reconnectPeriod if (!hasConnectedAtLeastOnce) setConnState("Offline"); }); client.on("close", () => { // When connection drops (or fails), show Offline unless we're actively reconnecting if (state.connState !== "Reconnecting") setConnState("Offline"); }); client.on("error", (err) => { // Mixed content under HTTPS can block ws:// connections; implement fallback logic. // If on https and we haven't tried wss yet, switch to wss://8081/mqtt once. console.warn("[MQTT] error:", err && err.message ? err.message : err); const isHttps = (location.protocol === "https:"); const isWsDefault = (state.activeUrl.startsWith("ws://")); if (isHttps && isWsDefault && !state.triedWssFallback) { state.triedWssFallback = true; // Switch quickly to wss fallback stopClient(); connectMqtt(WSS_URL_FALLBACK); showToast("Switched to secure WebSocket (wss)."); } }); client.on("message", (_topic, payload) => { const data = parseAndValidatePayload(payload); if (!data) return; // Update state only on valid payloads state.currentWaterLevel = data.currentWaterLevel; state.ThresholdWaterLevel = data.ThresholdWaterLevel; state.lastAlertOn = state.alertOn; state.alertOn = data.alertOn; state.lastMsgAt = Date.now(); // If alertOn becomes false: reset snooze immediately (per requirements) if (state.alertOn === false) { state.snoozeUntil = 0; closePopup(); } render(); // Snooze rule evaluation happens on every new valid payload evaluatePopupAndSound(); }); // HTTPS mixed-content fallback timer: // Start with ws:// default, but if page is https and we don't connect quickly, switch to wss://. clearTimeout(state.httpsFallbackTimer); if (location.protocol === "https:" && url.startsWith("ws://") && !state.triedWssFallback) { state.httpsFallbackTimer = setTimeout(() => { if (state.connState !== "Connected" && !state.triedWssFallback) { state.triedWssFallback = true; stopClient(); connectMqtt(WSS_URL_FALLBACK); showToast("Switched to secure WebSocket (wss)."); } }, 2500); } } // --- Events --- el.enableSoundBtn.addEventListener("click", async () => { await unlockSound(); }); el.testSoundBtn.addEventListener("click", async () => { const ok = await playBeep(); if (!ok) showToast("Sound blocked. Tap “Enable Sound”."); }); el.reconnectBtn.addEventListener("click", () => { state.triedWssFallback = false; const isHttps = (location.protocol === "https:"); // Start with ws default (requirement), with fallback if needed. connectMqtt(isHttps ? WS_URL_DEFAULT : WS_URL_DEFAULT); showToast("Reconnecting…"); }); el.alertDismissBtn.addEventListener("click", handleDismiss); el.alertCloseX.addEventListener("click", handleDismiss); // Allow backdrop click to dismiss (also triggers snooze when alertOn is still true) el.alertModal.addEventListener("click", (e) => { const clickedBackdrop = (e.target === el.alertModal) || (e.target.classList && e.target.classList.contains("bg-black/40")); if (clickedBackdrop) handleDismiss(); }); // --- Init --- function init() { // Initial UI defaults setConnState("Offline"); setAlertChip(false); render(); // Start with ws:// by default. // If opened under https://, browser may block ws:// (mixed content), so we auto-switch to wss:// if needed. state.triedWssFallback = false; connectMqtt(WS_URL_DEFAULT); } init(); })(); </script> </body> </html>
-  
+    <script>
+        /** --- STATE --- */
+        const state = {
+            snoozeUntil: 0,
+            isPopupVisible: false,
+            audioContext: null,
+            audioUnlocked: false
+        };
+
+        const DOM = {
+            level: document.getElementById('water-level'),
+            threshold: document.getElementById('threshold-level'),
+            statusChip: document.getElementById('status-chip'),
+            connChip: document.getElementById('connection-chip'),
+            connText: document.getElementById('conn-text'),
+            connIcon: document.getElementById('conn-icon'),
+            btnEnableSound: document.getElementById('btn-enable-sound'),
+            btnTestSound: document.getElementById('btn-test-sound'),
+            alertDialog: document.getElementById('alert-dialog'),
+            btnDismiss: document.getElementById('btn-dismiss'),
+            activityBar: document.getElementById('activity-bar')
+        };
+
+        /** --- AUDIO SYSTEM (Industrial Siren Synthesis) --- */
+        
+        function initAudio() {
+            if (!state.audioContext) {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                if (AudioContext) {
+                    state.audioContext = new AudioContext();
+                }
+            }
+            checkAudioState();
+        }
+
+        function checkAudioState() {
+            if (!state.audioContext) return;
+            
+            if (state.audioContext.state === 'suspended') {
+                state.audioUnlocked = false;
+                DOM.btnEnableSound.classList.remove('hidden');
+                DOM.btnTestSound.classList.add('text-amber-500', 'animate-pulse');
+            } else {
+                state.audioUnlocked = true;
+                DOM.btnEnableSound.classList.add('hidden');
+                DOM.btnTestSound.classList.remove('text-amber-500', 'animate-pulse');
+                DOM.btnTestSound.classList.add('text-gray-400');
+            }
+        }
+
+        async function unlockAudio() {
+            if (!state.audioContext) initAudio();
+            if (state.audioContext.state === 'suspended') {
+                await state.audioContext.resume();
+            }
+            // Silent ping to wake up the audio thread
+            const osc = state.audioContext.createOscillator();
+            const gain = state.audioContext.createGain();
+            gain.gain.value = 0.001;
+            osc.connect(gain);
+            gain.connect(state.audioContext.destination);
+            osc.start();
+            osc.stop(state.audioContext.currentTime + 0.01);
+            
+            checkAudioState();
+        }
+
+        // --- THE SIREN GENERATOR ---
+        function playSiren() {
+            if (!state.audioContext) initAudio();
+            if (state.audioContext.state === 'suspended') {
+                DOM.btnEnableSound.classList.remove('hidden');
+                return;
+            }
+
+            const ctx = state.audioContext;
+            const now = ctx.currentTime;
+            const duration = 1.5; // Seconds
+
+            // 1. The Main Tone (Sawtooth for "buzz" feeling)
+            const osc = ctx.createOscillator();
+            osc.type = 'sawtooth';
+
+            // 2. The Modulator (LFO) - creates the "Wee-Woo"
+            const lfo = ctx.createOscillator();
+            lfo.type = 'sine';
+            lfo.frequency.value = 4; // 4 cycles per second (speed of siren)
+
+            // 3. LFO Gain - determines how wide the pitch swing is
+            const lfoGain = ctx.createGain();
+            lfoGain.gain.value = 300; // +/- 300Hz swing
+
+            // 4. Master Volume for this sound
+            const masterGain = ctx.createGain();
+            masterGain.gain.setValueAtTime(0.2, now); // Start volume
+            masterGain.gain.linearRampToValueAtTime(0.2, now + duration - 0.2);
+            masterGain.gain.linearRampToValueAtTime(0.001, now + duration); // Fade out
+
+            // CONNECTIONS:
+            // LFO -> LFO Gain -> Main Oscillator Frequency
+            lfo.connect(lfoGain);
+            lfoGain.connect(osc.frequency);
+
+            // Main Oscillator -> Master Gain -> Speakers
+            osc.connect(masterGain);
+            masterGain.connect(ctx.destination);
+
+            // SETTINGS:
+            osc.frequency.value = 900; // Center frequency (High pitched alarm)
+
+            // START
+            lfo.start(now);
+            osc.start(now);
+
+            // STOP
+            lfo.stop(now + duration);
+            osc.stop(now + duration);
+        }
+
+        // Manual Test
+        DOM.btnTestSound.addEventListener('click', () => {
+            unlockAudio().then(() => {
+                playSiren();
+                DOM.btnTestSound.classList.add('text-red-600');
+                setTimeout(() => DOM.btnTestSound.classList.remove('text-red-600'), 1500);
+            });
+        });
+
+        DOM.btnEnableSound.addEventListener('click', () => {
+            unlockAudio().then(playSiren);
+        });
+
+        initAudio();
+
+
+        /** --- MQTT LOGIC --- */
+        const isSecure = window.location.protocol === 'https:';
+        const mqttPort = isSecure ? 8081 : 8080;
+        const mqttProtocol = isSecure ? 'wss' : 'ws';
+        const mqttUrl = `${mqttProtocol}://test.mosquitto.org:${mqttPort}/mqtt`;
+
+        const client = mqtt.connect(mqttUrl, { keepalive: 60, reconnectPeriod: 2000 });
+        const TOPIC = 'amana/water_level';
+
+        function setConnectionStatus(status) {
+            const config = {
+                'Connected':    ['bg-green-100', 'text-green-700', 'wifi'],
+                'Reconnecting': ['bg-yellow-100', 'text-yellow-700', 'wifi_protected_setup'],
+                'Offline':      ['bg-gray-200', 'text-gray-600', 'wifi_off'],
+                'Error':        ['bg-red-100', 'text-red-700', 'error_outline']
+            };
+            const [bg, text, icon] = config[status] || config['Offline'];
+            
+            DOM.connChip.className = `flex items-center space-x-1 px-2 py-1 rounded-full text-xs font-bold uppercase transition-colors duration-300 ${bg} ${text}`;
+            DOM.connText.innerText = status;
+            DOM.connIcon.innerText = icon;
+        }
+
+        client.on('connect', () => {
+            setConnectionStatus('Connected');
+            client.subscribe(TOPIC);
+        });
+        client.on('reconnect', () => setConnectionStatus('Reconnecting'));
+        client.on('offline', () => setConnectionStatus('Offline'));
+        client.on('error', (err) => { console.error(err); setConnectionStatus('Error'); });
+
+        /** --- UI LOGIC --- */
+        function updateUI(payload) {
+            DOM.activityBar.style.width = '100%';
+            setTimeout(() => DOM.activityBar.style.width = '0', 200);
+
+            DOM.level.innerText = payload.currentWaterLevel;
+            DOM.threshold.innerText = payload.ThresholdWaterLevel;
+
+            if (payload.alertOn) {
+                DOM.statusChip.innerText = "ALERT";
+                DOM.statusChip.className = "mt-1 px-3 py-0.5 rounded-full text-sm font-bold bg-red-600 text-white shadow-sm transition-colors duration-300";
+            } else {
+                DOM.statusChip.innerText = "OK";
+                DOM.statusChip.className = "mt-1 px-3 py-0.5 rounded-full text-sm font-bold bg-green-100 text-green-700 transition-colors duration-300";
+            }
+        }
+
+        function toggleDialog(show) {
+            if (show) {
+                DOM.alertDialog.classList.remove('hidden');
+                requestAnimationFrame(() => DOM.alertDialog.classList.remove('opacity-0'));
+                state.isPopupVisible = true;
+            } else {
+                DOM.alertDialog.classList.add('opacity-0');
+                setTimeout(() => DOM.alertDialog.classList.add('hidden'), 300);
+                state.isPopupVisible = false;
+            }
+        }
+
+        DOM.btnDismiss.addEventListener('click', () => {
+            if (state.isPopupVisible) {
+                toggleDialog(false);
+                state.snoozeUntil = Date.now() + 60000;
+                unlockAudio(); 
+            }
+        });
+
+        client.on('message', (topic, message) => {
+            try {
+                const payload = JSON.parse(message.toString());
+                const valid = 
+                    typeof payload.currentWaterLevel === 'number' &&
+                    typeof payload.ThresholdWaterLevel === 'number' &&
+                    typeof payload.alertOn === 'boolean';
+
+                if (!valid) return;
+
+                updateUI(payload);
+
+                const now = Date.now();
+
+                if (payload.alertOn === false) {
+                    state.snoozeUntil = 0;
+                    if (state.isPopupVisible) toggleDialog(false);
+                } else {
+                    if (now < state.snoozeUntil) return; 
+
+                    if (!state.isPopupVisible) {
+                        toggleDialog(true);
+                        playSiren();
+                    }
+                }
+            } catch (e) { console.error(e); }
+        });
+    </script>
+</body>
+</html>
